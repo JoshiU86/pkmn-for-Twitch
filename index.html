@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Twitch Pokémon Catch Overlay</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: 'Press Start 2P', monospace; user-select: none; -webkit-font-smoothing: none; }
+    .pixel-box { background:#f8f8d8; border:4px solid #302010; border-radius:8px;
+      box-shadow: inset -4px -4px 0 0 #b8b070, inset 4px 4px 0 0 #fff, 0 6px 12px rgba(0,0,0,.5); }
+    .pixel-box-dark { background:#1e1e24; border:4px solid #0f0f14; border-radius:8px;
+      box-shadow: inset -4px -4px 0 0 #121216, inset 4px 4px 0 0 #32323e; }
+    @keyframes float-idle { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    .sprite-float { animation: float-idle 2.2s ease-in-out infinite; }
+    @keyframes pokeball-throw {
+      0% { transform: translate(-180px,120px) scale(.4) rotate(0); opacity:0; }
+      20% { opacity:1; }
+      50% { transform: translate(0,-60px) scale(1.1) rotate(540deg); }
+      100% { transform: translate(0,0) scale(.8) rotate(1080deg); } }
+    .animate-throw { animation: pokeball-throw .8s cubic-bezier(.25,.46,.45,.94) forwards; }
+    /* scale(.8) behouden zodat de bal niet "springt" na de worp */
+    @keyframes pokeball-wiggle {
+      0%,100% { transform: scale(.8) rotate(0); } 25% { transform: scale(.8) rotate(-25deg); } 75% { transform: scale(.8) rotate(25deg); } }
+    .animate-wiggle { animation: pokeball-wiggle .4s ease-in-out; }
+    #pokeball-sprite { transform: scale(.8); }
+    @keyframes shiny-sparkle {
+      0% { filter: drop-shadow(0 0 6px rgba(255,215,0,.8)) brightness(1.2); }
+      100% { filter: drop-shadow(0 0 16px rgba(255,223,0,1)) brightness(1.5) hue-rotate(30deg); } }
+    .shiny-effect { animation: float-idle 2.2s ease-in-out infinite, shiny-sparkle 1.2s infinite alternate; }
+    .inp { background:#0a0a0e; border:1px solid #444; border-radius:4px; padding:6px; color:#fff; }
+    .btn { padding:6px 10px; border-radius:4px; font-weight:bold; color:#fff; }
+  </style>
+</head>
+<body class="bg-transparent min-h-screen flex flex-col justify-between p-4 overflow-hidden text-gray-900">
+
+  <!-- ============ OVERLAY ============ -->
+  <div id="overlay-container" class="w-full max-w-xl mx-auto pt-2 relative z-10">
+    <div id="catch-card" class="pixel-box p-4 sm:p-5 relative hidden">
+      <div class="flex justify-between items-center border-b-2 border-amber-900/20 pb-2 mb-3">
+        <div class="flex items-center gap-2 truncate max-w-[70%]">
+          <i class="fa-brands fa-twitch text-purple-600 text-xs sm:text-sm"></i>
+          <span id="trainer-name" class="text-xs sm:text-sm font-bold text-indigo-900 truncate">TRAINER</span>
+        </div>
+        <div id="rarity-badge" class="text-[9px] sm:text-[10px] px-2 py-0.5 rounded border border-black uppercase font-bold bg-gray-200 text-gray-800">COMMON</div>
+      </div>
+
+      <div class="relative w-full h-44 sm:h-52 bg-gradient-to-b from-sky-200 via-emerald-100 to-green-200 border-2 border-gray-800 rounded-lg overflow-hidden flex flex-col justify-between p-3 shadow-inner">
+        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-48 h-16 bg-emerald-300/80 rounded-full blur-sm border border-emerald-400/50"></div>
+        <div class="relative z-10 bg-black/60 text-white px-2.5 py-1.5 rounded border border-gray-600 self-start text-[9px] sm:text-[10px] space-y-1">
+          <div class="flex items-center gap-2">
+            <span id="pkmn-name" class="font-bold text-amber-300 uppercase">PIKACHU</span>
+            <span id="shiny-tag" class="hidden text-yellow-300 font-extrabold animate-pulse">✨ SHINY</span>
+          </div>
+          <div class="text-gray-300 text-[8px]" id="pkmn-types">TYPE: ELECTRIC</div>
+        </div>
+        <div class="relative flex-1 flex items-center justify-center">
+          <img id="pkmn-sprite" src="" alt="Pokemon" class="w-24 h-24 sm:w-28 sm:h-28 object-contain sprite-float relative z-10 transition-opacity duration-300" />
+          <img id="pokeball-sprite" src="" alt="Pokeball" class="w-10 h-10 sm:w-12 sm:h-12 absolute z-20 hidden" />
+        </div>
+        <div class="relative z-10 bg-white/90 border-2 border-amber-900 rounded p-2 text-center shadow min-h-[2.5rem] flex items-center justify-center">
+          <p id="battle-dialogue" class="text-[9px] sm:text-[10px] text-gray-900 font-bold leading-relaxed">A wild Pokémon appeared!</p>
+        </div>
+      </div>
+
+      <div class="mt-2 flex justify-between items-center text-[8px] sm:text-[9px] text-amber-950 font-bold">
+        <span>CATCH RATE: <span id="catch-rate-text">70%</span></span>
+        <span>BALL: <span id="ball-used-text" class="text-red-700">POKÉBALL</span></span>
+      </div>
+    </div>
+    <div id="recent-feed" class="mt-2 space-y-1 text-[8px] sm:text-[9px]"></div>
+  </div>
+
+  <!-- ============ INSTELLINGEN ============ -->
+  <div id="control-panel" class="w-full max-w-xl mx-auto my-4 z-20">
+    <div class="pixel-box-dark text-white p-4 shadow-2xl">
+      <div class="flex justify-between items-center mb-3 border-b border-gray-700 pb-2">
+        <h2 class="text-xs sm:text-sm font-bold text-yellow-400"><i class="fa-solid fa-gamepad"></i> Instellingen</h2>
+        <div class="flex items-center gap-2">
+          <span class="text-[8px] text-gray-400">Wachtrij: <span id="queue-count">0</span></span>
+          <button id="audio-btn" onclick="toggleAudio()" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-[9px] text-yellow-300 border border-gray-600"><i class="fa-solid fa-volume-high"></i> Audio: AAN</button>
+          <button onclick="toggleOverlayMode()" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-[9px] font-bold"><i class="fa-solid fa-eye"></i> Overlay</button>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <span class="block text-[9px] text-gray-400 mb-2 uppercase font-bold">Test:</span>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[9px]">
+          <button onclick="testTrigger('throw')" class="bg-emerald-600 hover:bg-emerald-500 p-2 rounded border-b-2 border-emerald-900">Gooi bal</button>
+          <button onclick="testTrigger('rare')" class="bg-blue-600 hover:bg-blue-500 p-2 rounded border-b-2 border-blue-900">Spawn rare</button>
+          <button onclick="testTrigger('legendary')" class="bg-amber-600 hover:bg-amber-500 p-2 rounded border-b-2 border-amber-900">Spawn legendary</button>
+          <button onclick="testTrigger('shiny')" class="bg-purple-600 hover:bg-purple-500 p-2 rounded border-b-2 border-purple-900">Spawn shiny</button>
+        </div>
+      </div>
+
+      <div class="space-y-2 bg-gray-900/80 p-3 rounded border border-gray-800 text-[9px]">
+        <div class="font-bold text-yellow-400"><i class="fa-brands fa-twitch"></i> Twitch kanaalpunten</div>
+
+        <div class="flex gap-2">
+          <input id="token" type="password" placeholder="Access token plakken, of gebruik Login →" class="inp flex-1">
+          <button onclick="loginTwitch()" class="btn bg-purple-700 hover:bg-purple-600">Login</button>
+        </div>
+        <details>
+          <summary class="cursor-pointer text-gray-400 hover:text-white">Eigen Twitch-app (nodig voor Login-knop)</summary>
+          <div class="mt-2 space-y-1">
+            <input id="client-id" placeholder="Client ID van dev.twitch.tv/console" class="inp w-full">
+            <p class="text-gray-400 leading-relaxed">OAuth Redirect URL in je app: <span id="redirect-hint" class="text-yellow-300 break-all"></span></p>
+          </div>
+        </details>
+        <div id="tw-status" class="text-[8px] text-gray-400">Niet ingelogd</div>
+
+        <div class="pt-1 border-t border-gray-800 space-y-2">
+          <div class="text-gray-400">Eén reward per bal (prijs in kanaalpunten):</div>
+          <div id="ball-rows" class="space-y-1"></div>
+          <div class="flex gap-2">
+            <button onclick="createRewards()" class="btn flex-1 bg-emerald-700 hover:bg-emerald-600">Maak ontbrekende rewards aan</button>
+            <button onclick="loadRewards()" class="btn bg-gray-700 hover:bg-gray-600" title="Vernieuwen"><i class="fa-solid fa-rotate"></i></button>
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-gray-300"><input type="checkbox" id="opt-chat"> Ook <b>!catch</b> in chat (gratis, 30s per persoon)</label>
+
+        <div class="flex gap-2">
+          <button onclick="connectAll()" class="btn flex-1 bg-indigo-600 hover:bg-indigo-500">Verbinden</button>
+          <button onclick="disconnectAll()" class="btn bg-red-700 hover:bg-red-600">Stop</button>
+        </div>
+        <div id="es-status" class="text-[8px] text-gray-400">Kanaalpunten: niet verbonden</div>
+        <div id="chat-status" class="text-[8px] text-gray-400">Chat: niet verbonden</div>
+      </div>
+    </div>
+  </div>
+
+  <button id="show-panel-btn" onclick="toggleOverlayMode()" class="fixed bottom-3 right-3 bg-gray-900/90 text-yellow-400 text-[10px] p-2.5 rounded-full border border-yellow-500 shadow-lg hidden z-50"><i class="fa-solid fa-sliders"></i></button>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // ---------- OPSLAG (localStorage, met fallback) ----------
+  const LS_KEY = 'pkmnCatchOverlay';
+  const cfg = (() => { try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; } })();
+  const save = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)); } catch {} };
+
+  const state = { busy: false, audio: true, overlayOnly: false, queue: [], chatWs: null, es: null,
+                  esWanted: false, chatWanted: false, seen: new Set(), chatCd: new Map(), watchdog: null };
+  let auth = null; // { clientId, userId, login, scopes }
+
+  const BALLS = {
+    poke:   { label: 'Poké Ball',  name: 'POKÉBALL',   cost: 100, bonus: 1.0, img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png' },
+    great:  { label: 'Great Ball', name: 'GREAT BALL', cost: 250, bonus: 1.5, img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/great-ball.png' },
+    ultra:  { label: 'Ultra Ball', name: 'ULTRA BALL', cost: 500, bonus: 2.5, img: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/ultra-ball.png' }
+  };
+  // Alleen nog gebruikt om een legendary te forceren in de test-knop; echte detectie gaat via PokéAPI species.
+  const LEGENDARIES = [144,145,146,150,151,243,244,245,249,250,251,377,378,379,380,381,382,383,384,385,386,
+    480,481,482,483,484,485,486,487,488,491,492,493,638,639,640,641,642,643,644,645,646,647,648,649,
+    716,717,718,719,720,721,785,786,787,788,789,790,791,792,800,801,802,888,889,890,891,892,894,895,898,
+    1001,1002,1003,1004,1007,1008,1010,1017,1024,1025];
+
+  function setStatus(id, text, kind) {
+    const el = $(id); el.textContent = text;
+    el.className = 'text-[8px] ' + ({ ok: 'text-green-400 font-bold', err: 'text-red-400', warn: 'text-yellow-400' }[kind] || 'text-gray-400');
+  }
+
+  // ---------- AUDIO ----------
+  let audioCtx = null;
+  function tone(type, f0, f1, t0, dur, vol) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + t0;
+    o.type = type; o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.01, t + dur);
+    o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + dur);
+  }
+  function playSound(kind) {
+    if (!state.audio) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (kind === 'throw') tone('sine', 400, 80, 0, .25, .2);
+      else if (kind === 'wiggle') tone('triangle', 180, 260, 0, .1, .2);
+      else if (kind === 'flee') tone('sawtooth', 300, 100, 0, .4, .2);
+      else if (kind === 'success') [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone('square', f, f, i * .1, .25, .15));
+      else if (kind === 'shiny') [1200, 1600, 2000, 2400].forEach((f, i) => tone('sine', f, f, i * .06, .15, .15));
+    } catch {}
+  }
+  function toggleAudio() {
+    state.audio = !state.audio;
+    $('audio-btn').innerHTML = state.audio ? '<i class="fa-solid fa-volume-high"></i> Audio: AAN' : '<i class="fa-solid fa-volume-xmark"></i> Audio: UIT';
+  }
+
+  // ---------- WACHTRIJ ----------
+  // Er staat altijd één wilde Pokémon in beeld (state.current). Elke redemption = één worp op die Pokémon.
+  // Mislukt de worp, dan blijft hij staan; pas als hij gevangen is verschijnt er een nieuwe.
+  function enqueue(job) { state.queue.push(job); $('queue-count').textContent = state.queue.length; processQueue(); }
+
+  async function processQueue() {
+    if (state.busy || !state.queue.length) return;
+    state.busy = true;
+    const job = state.queue.shift();
+    $('queue-count').textContent = state.queue.length;
+    try {
+      if (!state.current) await spawnPokemon();
+      throwBall(job);
+    } catch (err) {
+      console.error('Worp mislukt:', err);
+      if (job.redemption) updateRedemption(job, 'CANCELED'); // punten terug bij een technische fout
+      state.busy = false; setTimeout(processQueue, 5000);
+    }
+  }
+
+  // ---------- SPAWN ----------
+  function spawnPokemon(forceType, restore) {
+    if (!state.spawning) state.spawning = doSpawn(forceType, restore).finally(() => { state.spawning = null; });
+    return state.spawning;
+  }
+  async function ensureSpawn() {
+    try { await spawnPokemon(null, cfg.current); } catch (e) { console.error(e); setTimeout(ensureSpawn, 5000); }
+  }
+
+  async function doSpawn(forceType, restore) {
+    let id = restore?.id, isShiny = !!restore?.isShiny;
+    if (!id) {
+      id = Math.floor(Math.random() * 1025) + 1;
+      isShiny = Math.random() < 0.01;
+      if (forceType === 'legendary') id = LEGENDARIES[Math.floor(Math.random() * LEGENDARIES.length)];
+      else if (forceType === 'shiny') isShiny = true;
+      else if (forceType === 'rare') id = [3, 6, 9, 131, 143, 248, 282, 376, 445, 658][Math.floor(Math.random() * 10)];
+    }
+    const [pRes, sRes] = await Promise.all([
+      fetch(`https://pokeapi.co/api/v2/pokemon/${id}`), fetch(`https://pokeapi.co/api/v2/pokemon-species/${id}`)]);
+    if (!pRes.ok) throw new Error('PokéAPI ' + pRes.status);
+    const data = await pRes.json();
+    const species = sRes.ok ? await sRes.json() : {};
+    const isLegendary = !!(species.is_legendary || species.is_mythical) || LEGENDARIES.includes(id);
+
+    const art = data.sprites.other?.['official-artwork'], show = data.sprites.other?.showdown;
+    const pick = (a, b) => (isShiny ? a : b);
+    const fallback = pick(art?.front_shiny, art?.front_default) || pick(data.sprites.front_shiny, data.sprites.front_default);
+    const sprite = pick(show?.front_shiny, show?.front_default) || fallback;
+
+    let rarity = 'COMMON', base = 0.70;
+    if (isLegendary) { rarity = 'LEGENDARY'; base = 0.15; }
+    else if (data.base_experience > 200) { rarity = 'EPIC'; base = 0.35; }
+    else if (data.base_experience > 100) { rarity = 'RARE'; base = 0.50; }
+
+    state.current = { id, isShiny, rarity, base, sprite, fallback,
+      name: data.name.replace(/-/g, ' ').toUpperCase(),
+      types: data.types.map(t => t.type.name.toUpperCase()).join(' / ') };
+    cfg.current = { id, isShiny }; save(); // overleeft een refresh/herstart van OBS
+    showPokemon();
+  }
+
+  function rateFor(c, ball) { const odds = c.base / (1 - c.base) * ball.bonus; return odds / (1 + odds); }
+
+  function showPokemon(text) {
+    const c = state.current, sprite = $('pkmn-sprite'), badge = $('rarity-badge');
+    $('trainer-name').textContent = 'WILD ENCOUNTER';
+    $('pkmn-name').textContent = c.name;
+    $('pkmn-types').textContent = `TYPE: ${c.types}`;
+    $('catch-rate-text').textContent = `${Math.round(rateFor(c, BALLS.poke) * 100)}%`;
+    $('ball-used-text').textContent = '—';
+    badge.className = 'text-[9px] sm:text-[10px] px-2 py-0.5 rounded border border-black uppercase font-bold ' +
+      ({ LEGENDARY: 'bg-amber-400 text-amber-950 animate-pulse', EPIC: 'bg-purple-500 text-white', RARE: 'bg-blue-500 text-white' }[c.rarity] || 'bg-gray-200 text-gray-800');
+    badge.textContent = c.rarity;
+    $('shiny-tag').classList.toggle('hidden', !c.isShiny);
+    sprite.className = 'w-24 h-24 sm:w-28 sm:h-28 object-contain relative z-10 transition-opacity duration-300 ' + (c.isShiny ? 'shiny-effect' : 'sprite-float');
+    sprite.onerror = () => { sprite.onerror = null; if (c.fallback) sprite.src = c.fallback; };
+    sprite.src = c.sprite; sprite.style.opacity = '1';
+    $('pokeball-sprite').classList.add('hidden');
+    $('battle-dialogue').textContent = text || `A wild ${c.name} appeared!`;
+    $('catch-card').classList.remove('hidden');
+    if (c.isShiny && !text) playSound('shiny');
+  }
+
+  // ---------- WORP ----------
+  function throwBall(job) {
+    const c = state.current, ball = BALLS[job.ball] || BALLS.poke, rate = rateFor(c, ball);
+    const d = { job, trainer: job.trainer, ball, isCaught: Math.random() < rate };
+    const ballEl = $('pokeball-sprite');
+    $('trainer-name').textContent = d.trainer.toUpperCase();
+    $('catch-rate-text').textContent = `${Math.round(rate * 100)}%`;
+    $('ball-used-text').textContent = ball.name;
+    ballEl.src = ball.img;
+    $('battle-dialogue').textContent = `${d.trainer} threw a ${ball.name}!`;
+    playSound('throw');
+    ballEl.classList.remove('hidden', 'animate-wiggle');
+    ballEl.classList.add('animate-throw');
+    setTimeout(() => {
+      $('pkmn-sprite').style.opacity = '0';
+      ballEl.classList.remove('animate-throw');
+      wiggle(0, d.isCaught ? 3 : Math.floor(Math.random() * 2) + 1, d);
+    }, 800);
+  }
+
+  function wiggle(i, total, d) {
+    if (i >= total) return setTimeout(() => finishThrow(d), 800);
+    setTimeout(() => {
+      const ballEl = $('pokeball-sprite');
+      playSound('wiggle');
+      ballEl.classList.remove('animate-wiggle'); void ballEl.offsetWidth; ballEl.classList.add('animate-wiggle');
+      $('battle-dialogue').textContent = '. '.repeat(i + 1);
+      wiggle(i + 1, total, d);
+    }, 700);
+  }
+
+  function finishThrow(d) {
+    const c = state.current, ballEl = $('pokeball-sprite'), dlg = $('battle-dialogue');
+    logCatch(d.trainer, c.name, c.isShiny, d.isCaught);
+    if (d.job.redemption) updateRedemption(d.job, 'FULFILLED'); // punten zijn besteed, ook bij een misser
+
+    if (d.isCaught) {
+      playSound('success');
+      dlg.textContent = `Gotcha! ${c.name} was caught! 🎉`;
+      ballEl.classList.add('animate-bounce');
+      state.current = null; cfg.current = null; save();
+      setTimeout(async () => {
+        ballEl.classList.remove('animate-bounce');
+        try { await spawnPokemon(); } catch (e) { console.error(e); ensureSpawn(); }
+        state.busy = false; processQueue();
+      }, 3500);
+    } else {
+      playSound('flee');
+      ballEl.classList.add('hidden');
+      $('pkmn-sprite').style.opacity = '1';
+      dlg.textContent = `Oh no! ${c.name} broke free!`;
+      setTimeout(() => { showPokemon(`${c.name} is still here!`); state.busy = false; processQueue(); }, 2500);
+    }
+  }
+
+  function logCatch(trainer, pokemon, isShiny, ok) {
+    const item = document.createElement('div');
+    item.className = `p-1.5 rounded border-l-4 bg-black/60 ${ok ? 'border-green-500 text-white' : 'border-red-500 text-gray-400'} flex justify-between items-center font-bold shadow`;
+    const left = document.createElement('span'); left.className = 'truncate';
+    const who = document.createElement('span'); who.className = 'text-yellow-400'; who.textContent = trainer; // textContent: geen HTML-injectie via usernames
+    left.append(who, `: ${isShiny ? '⭐ SHINY ' : ''}${pokemon}`);
+    const tag = document.createElement('span'); tag.className = 'text-[7px] px-1 bg-gray-800 rounded'; tag.textContent = ok ? '✨ CAUGHT' : '❌ MISS';
+    item.append(left, tag);
+    const feed = $('recent-feed'); feed.prepend(item);
+    while (feed.children.length > 4) feed.removeChild(feed.lastChild);
+  }
+
+  // ---------- TWITCH: LOGIN & API ----------
+  function loginTwitch() {
+    const clientId = $('client-id').value.trim();
+    if (location.protocol === 'file:') return alert('Login-redirect werkt niet vanaf een bestand (file://). Host de pagina (bijv. GitHub Pages of http://localhost) of plak handmatig een token.');
+    if (!clientId) return alert('Vul eerst het Client ID van je Twitch-app in (zie "Eigen Twitch-app").');
+    cfg.clientId = clientId; save();
+    const redirect = location.origin + location.pathname;
+    location.href = 'https://id.twitch.tv/oauth2/authorize?response_type=token' +
+      `&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirect)}` +
+      `&scope=${encodeURIComponent('channel:read:redemptions channel:manage:redemptions')}`;
+  }
+
+  async function api(path, opts = {}) {
+    return fetch('https://api.twitch.tv/helix/' + path, { ...opts, headers: {
+      'Client-ID': auth.clientId, 'Authorization': 'Bearer ' + cfg.token, 'Content-Type': 'application/json' } });
+  }
+
+  async function initAuth() {
+    if (!cfg.token) { auth = null; return false; }
+    try {
+      const r = await fetch('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: 'OAuth ' + cfg.token } });
+      if (!r.ok) throw new Error('invalid');
+      const j = await r.json();
+      auth = { clientId: j.client_id, userId: j.user_id, login: j.login, scopes: j.scopes || [] };
+      const canRead = auth.scopes.includes('channel:read:redemptions') || auth.scopes.includes('channel:manage:redemptions');
+      setStatus('tw-status', canRead
+        ? `Ingelogd als ${j.login} (token nog ~${Math.round(j.expires_in / 60)} min geldig)`
+        : `Ingelogd als ${j.login}, maar scope channel:read:redemptions ontbreekt`, canRead ? 'ok' : 'warn');
+      await loadRewards();
+      return canRead;
+    } catch {
+      auth = null; setStatus('tw-status', 'Token ongeldig of verlopen — log opnieuw in', 'err'); return false;
+    }
+  }
+
+  function buildBallRows() {
+    cfg.costs = cfg.costs || {}; cfg.rewards = cfg.rewards || {};
+    $('ball-rows').innerHTML = Object.entries(BALLS).map(([k, b]) =>
+      `<div class="flex gap-2 items-center"><span class="w-24 text-gray-300">${b.label}</span>` +
+      `<input id="cost-${k}" type="number" min="1" value="${cfg.costs[k] || b.cost}" class="inp w-20">` +
+      `<select id="sel-${k}" class="inp flex-1"><option value="">— kies reward —</option></select></div>`).join('');
+    for (const k in BALLS) {
+      $('cost-' + k).onchange = e => { cfg.costs[k] = parseInt(e.target.value, 10) || BALLS[k].cost; save(); };
+      $('sel-' + k).onchange = e => { cfg.rewards[k] = e.target.value; save(); };
+    }
+  }
+
+  async function loadRewards() {
+    if (!auth) return;
+    try {
+      const r = await api(`channel_points/custom_rewards?broadcaster_id=${auth.userId}`);
+      if (!r.ok) throw new Error((await r.json()).message || r.status);
+      const list = (await r.json()).data || [];
+      for (const k in BALLS) {
+        const sel = $('sel-' + k);
+        sel.innerHTML = '<option value="">— kies reward —</option>';
+        list.forEach(rw => { const o = document.createElement('option'); o.value = rw.id; o.textContent = `${rw.title} (${rw.cost})`; sel.append(o); });
+        sel.value = cfg.rewards[k] || '';
+        if (sel.value !== (cfg.rewards[k] || '')) { cfg.rewards[k] = ''; save(); } // reward bestaat niet meer
+      }
+    } catch (e) { setStatus('tw-status', 'Rewards laden mislukt: ' + e.message, 'err'); }
+  }
+
+  // Maakt alleen de ontbrekende rewards aan. Alleen rewards die via ónze app zijn gemaakt kunnen we automatisch afronden/terugbetalen.
+  async function createRewards() {
+    if (!auth && !(await initAuth())) return alert('Eerst inloggen / token invullen.');
+    if (!auth.scopes.includes('channel:manage:redemptions')) return alert('Token mist scope channel:manage:redemptions.');
+    const made = [], failed = [];
+    for (const [k, b] of Object.entries(BALLS)) {
+      if (cfg.rewards[k]) continue;
+      const cost = parseInt($('cost-' + k).value, 10) || b.cost;
+      const r = await api(`channel_points/custom_rewards?broadcaster_id=${auth.userId}`, { method: 'POST', body: JSON.stringify({
+        title: `Gooi een ${b.label}`, cost, prompt: `Gooi een ${b.label} en probeer een willekeurige Pokémon te vangen!`,
+        is_enabled: true, should_redemptions_skip_request_queue: false }) });
+      const j = await r.json();
+      if (r.ok) { cfg.rewards[k] = j.data[0].id; made.push(b.label); }
+      else failed.push(`${b.label}: ${j.message || r.status}`);
+    }
+    save(); await loadRewards();
+    setStatus('tw-status', failed.length ? 'Mislukt: ' + failed.join(' | ') : made.length ? `Aangemaakt: ${made.join(', ')}` : 'Alle rewards bestaan al', failed.length ? 'err' : 'ok');
+  }
+
+  async function updateRedemption(job, status) {
+    if (!auth || !job.redemption) return;
+    try {
+      const { id, rewardId } = job.redemption;
+      const r = await api(`channel_points/custom_rewards/redemptions?id=${id}&broadcaster_id=${auth.userId}&reward_id=${rewardId}`,
+        { method: 'PATCH', body: JSON.stringify({ status }) });
+      if (!r.ok) console.warn('Redemption status niet gezet (reward niet via deze app gemaakt?)', await r.text());
+    } catch (e) { console.warn(e); }
+  }
+
+  // ---------- TWITCH: EVENTSUB (kanaalpunten) ----------
+  const ES_URL = 'wss://eventsub.wss.twitch.tv/ws';
+
+  function openEventSub(url = ES_URL, old = null) {
+    const ws = new WebSocket(url);
+    let timeoutMs = 15000;
+    const arm = () => { clearTimeout(state.watchdog); state.watchdog = setTimeout(() => ws.close(), timeoutMs); };
+
+    ws.onmessage = async ev => {
+      const m = JSON.parse(ev.data), type = m.metadata?.message_type;
+      if (m.metadata?.message_id) { if (state.seen.has(m.metadata.message_id)) return; state.seen.add(m.metadata.message_id); if (state.seen.size > 200) state.seen.clear(); }
+      if (ws === state.es) arm();
+
+      if (type === 'session_welcome') {
+        timeoutMs = ((m.payload.session.keepalive_timeout_seconds || 10) + 5) * 1000;
+        state.es = ws; arm();
+        if (old) { old.onclose = null; old.close(); setStatus('es-status', 'Kanaalpunten: actief (herverbonden)', 'ok'); return; } // abonnement blijft bij reconnect bestaan
+        const cond = { broadcaster_user_id: auth.userId };
+        const r = await api('eventsub/subscriptions', { method: 'POST', body: JSON.stringify({
+          type: 'channel.channel_points_custom_reward_redemption.add', version: '1', condition: cond,
+          transport: { method: 'websocket', session_id: m.payload.session.id } }) });
+        if (r.ok) setStatus('es-status', 'Kanaalpunten: actief, wacht op redemptions!', 'ok');
+        else { setStatus('es-status', 'Abonnement mislukt: ' + ((await r.json()).message || r.status), 'err'); state.esWanted = false; ws.close(); }
+      }
+      else if (type === 'session_reconnect') openEventSub(m.payload.session.reconnect_url, ws);
+      else if (type === 'revocation') setStatus('es-status', 'Abonnement ingetrokken door Twitch (token/reward?)', 'err');
+      else if (type === 'notification') {
+        const e = m.payload.event;
+        const ball = Object.keys(BALLS).find(k => cfg.rewards[k] === e.reward.id);
+        if (!ball) return; // andere reward, negeren
+        enqueue({ trainer: e.user_name || 'Viewer', ball, redemption: { id: e.id, rewardId: e.reward.id } });
+      }
+    };
+    ws.onclose = () => {
+      if (ws !== state.es && !old) return;
+      clearTimeout(state.watchdog);
+      if (state.esWanted) { setStatus('es-status', 'Verbinding verbroken, opnieuw proberen…', 'warn'); setTimeout(() => state.esWanted && openEventSub(), 3000); }
+    };
+    ws.onerror = () => setStatus('es-status', 'WebSocket-fout', 'err');
+  }
+
+  // ---------- TWITCH: CHAT (!catch, optioneel) ----------
+  function connectChat(channel) {
+    if (state.chatWs) { state.chatWs.onclose = null; state.chatWs.close(); }
+    state.chatWanted = true;
+    const ws = state.chatWs = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+    ws.onopen = () => {
+      ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+      ws.send('NICK justinfan' + Math.floor(Math.random() * 89999 + 10000));
+      ws.send('JOIN #' + channel);
+      setStatus('chat-status', `Chat: #${channel} — luistert naar !catch`, 'ok');
+    };
+    ws.onmessage = e => e.data.split('\r\n').forEach(line => {
+      if (!line) return;
+      if (line.startsWith('PING')) return ws.send('PONG :tmi.twitch.tv');
+      const m = line.match(/^@(\S+) :(\w+)!\S+ PRIVMSG #\S+ :(.*)$/);
+      if (!m || !cfg.chatCmd) return;
+      const tags = Object.fromEntries(m[1].split(';').map(s => s.split('=')));
+      const user = tags['display-name'] || m[2];
+      if (/^!(catch|vang|pokemon)\b/i.test(m[3].trim())) {
+        const now = Date.now();
+        if (now - (state.chatCd.get(user) || 0) < 30000) return; // cooldown tegen spam
+        state.chatCd.set(user, now);
+        enqueue({ trainer: user });
+      }
+    });
+    ws.onclose = () => { if (state.chatWanted) { setStatus('chat-status', 'Chat: opnieuw verbinden…', 'warn'); setTimeout(() => state.chatWanted && connectChat(channel), 3000); } };
+    ws.onerror = () => setStatus('chat-status', 'Chat: fout', 'err');
+  }
+
+  async function connectAll() {
+    if (!auth && !(await initAuth())) return;
+    if (!Object.values(cfg.rewards).some(Boolean)) return setStatus('es-status', 'Kies of maak eerst minstens één reward', 'warn');
+    state.esWanted = true; cfg.autoConnect = true; save();
+    if (state.es) { state.es.onclose = null; state.es.close(); }
+    setStatus('es-status', 'Kanaalpunten: verbinden…', 'warn');
+    openEventSub();
+    if (cfg.chatCmd) connectChat(new URLSearchParams(location.search).get('channel') || auth.login);
+  }
+
+  function disconnectAll() {
+    state.esWanted = state.chatWanted = false; cfg.autoConnect = false; save();
+    clearTimeout(state.watchdog);
+    [state.es, state.chatWs].forEach(s => { if (s) { s.onclose = null; s.close(); } });
+    state.es = state.chatWs = null;
+    setStatus('es-status', 'Kanaalpunten: niet verbonden'); setStatus('chat-status', 'Chat: niet verbonden');
+  }
+
+  // ---------- UI ----------
+  function toggleOverlayMode() {
+    state.overlayOnly = !state.overlayOnly;
+    $('control-panel').classList.toggle('hidden', state.overlayOnly);
+    $('show-panel-btn').classList.toggle('hidden', !state.overlayOnly);
+  }
+
+  function testTrigger(type) {
+    if (type === 'throw') {
+      const names = ['AshKetchum', 'Red', 'Misty', 'Brock', 'GaryOak', 'TwitchViewer'], balls = Object.keys(BALLS);
+      enqueue({ trainer: names[Math.floor(Math.random() * names.length)], ball: balls[Math.floor(Math.random() * balls.length)] });
+    } else if (!state.busy) spawnPokemon(type).catch(console.error); // nieuwe Pokémon forceren (alleen als er geen worp bezig is)
+  }
+
+  window.addEventListener('DOMContentLoaded', async () => {
+    // Token uit OAuth-redirect (#access_token=...) oppakken en direct uit de URL halen
+    const hash = new URLSearchParams(location.hash.slice(1));
+    if (hash.get('access_token')) {
+      cfg.token = hash.get('access_token'); save();
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+
+    $('redirect-hint').textContent = location.protocol === 'file:' ? '(niet beschikbaar vanaf file://, host de pagina of plak een token)' : location.origin + location.pathname;
+    buildBallRows();
+    $('client-id').value = cfg.clientId || '';
+    $('token').value = cfg.token || '';
+    $('opt-chat').checked = !!cfg.chatCmd;
+
+    $('client-id').onchange = e => { cfg.clientId = e.target.value.trim(); save(); };
+    $('token').onchange = async e => { cfg.token = e.target.value.trim(); save(); await initAuth(); };
+    $('opt-chat').onchange = e => { cfg.chatCmd = e.target.checked; save(); };
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('overlay') === '1' || params.get('clean') === '1') toggleOverlayMode();
+
+    ensureSpawn(); // direct een Pokémon in beeld, ook zonder Twitch-verbinding
+    if (await initAuth() && cfg.autoConnect && Object.values(cfg.rewards).some(Boolean)) connectAll();
+    else if (params.get('channel') && cfg.chatCmd) connectChat(params.get('channel'));
+  });
+</script>
+</body>
+</html>
